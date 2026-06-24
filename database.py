@@ -204,6 +204,12 @@ def mark_attendance(employee_id):
 
     if not record:
         # First scan of the day -> Check-In
+        now_time_parsed = datetime.datetime.strptime(now_time, '%H:%M:%S').time()
+        nine_am = datetime.time(9, 0, 0)
+        if now_time_parsed > nine_am:
+            release_db_connection(conn)
+            return "LATE", "Login Not Accepted (After 9:00 AM)"
+
         cursor.execute(f'''
             INSERT INTO attendance (employee_id, date, login_time, logout_time)
             VALUES ({p}, {p}, {p}, {p})

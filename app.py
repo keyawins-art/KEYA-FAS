@@ -308,6 +308,9 @@ def api_mark():
     else:
         status_type, msg = "ERROR", res
         
+    if status_type == 'LATE':
+        return jsonify(success=False, message=msg)
+        
     return jsonify(success=True, type=status_type, message=msg)
 
 @app.route('/api/get_my_attendance', methods=['POST'])
@@ -366,6 +369,7 @@ def api_update_attendance_time():
 
 # ─── API: Manual attendance override ──────────────────────────────────────────
 @app.route('/api/manual_attendance', methods=['POST'])
+@login_required
 def api_manual_attendance():
     data = request.get_json(force=True)
     eid = data.get('employee_id')
