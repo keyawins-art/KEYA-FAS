@@ -518,6 +518,22 @@
             color: #d1d5db;
             font-size: 1.1rem;
             line-height: 1.5;
+            margin-bottom: 25px;
+        }
+        .warning-modal-btn {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 10px 25px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .warning-modal-btn:hover {
+            background: #dc2626;
+            transform: scale(1.05);
         }
     </style>
 </head>
@@ -648,13 +664,19 @@
             }, 4000);
         }
 
+        let warningTimeout;
         function showWarningPopup(message) {
             const overlay = document.getElementById('warningModalOverlay');
             document.getElementById('warningModalMsg').textContent = message;
             overlay.classList.add('active');
-            setTimeout(() => {
-                overlay.classList.remove('active');
-            }, 5000); // 5 seconds display
+            clearTimeout(warningTimeout);
+            warningTimeout = setTimeout(() => {
+                closeWarningPopup();
+            }, 8000); // 8 seconds display
+        }
+
+        function closeWarningPopup() {
+            document.getElementById('warningModalOverlay').classList.remove('active');
         }
 
         function updateClock() {
@@ -939,11 +961,12 @@
         }
     </script>
     <!-- Warning Modal -->
-    <div class="warning-modal-overlay" id="warningModalOverlay">
-        <div class="warning-modal">
+    <div class="warning-modal-overlay" id="warningModalOverlay" onclick="closeWarningPopup()">
+        <div class="warning-modal" onclick="event.stopPropagation()">
             <div class="warning-modal-icon"><i class="fa-solid fa-circle-exclamation"></i></div>
             <div class="warning-modal-title">NOT ACCEPTED</div>
             <div class="warning-modal-msg" id="warningModalMsg">Login not accepted</div>
+            <button class="warning-modal-btn" onclick="closeWarningPopup()">Go Back</button>
         </div>
     </div>
 </body>
