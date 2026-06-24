@@ -462,6 +462,63 @@
                 padding: 10px;
             }
         }
+
+        /* Warning Modal */
+        .warning-modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+        }
+        .warning-modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .warning-modal {
+            background: linear-gradient(145deg, #1f2937, #111827);
+            border: 2px solid #ef4444;
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            transform: scale(0.8) translateY(20px);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 25px 50px -12px rgba(239, 68, 68, 0.25);
+            max-width: 90%;
+            width: 400px;
+        }
+        .warning-modal-overlay.active .warning-modal {
+            transform: scale(1) translateY(0);
+        }
+        .warning-modal-icon {
+            font-size: 4rem;
+            color: #ef4444;
+            margin-bottom: 20px;
+            animation: shake 0.5s ease-in-out;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            50% { transform: translateX(10px); }
+            75% { transform: translateX(-10px); }
+        }
+        .warning-modal-title {
+            color: #f87171;
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .warning-modal-msg {
+            color: #d1d5db;
+            font-size: 1.1rem;
+            line-height: 1.5;
+        }
     </style>
 </head>
 
@@ -589,6 +646,15 @@
             setTimeout(() => {
                 document.getElementById('hudCard').classList.remove('active');
             }, 4000);
+        }
+
+        function showWarningPopup(message) {
+            const overlay = document.getElementById('warningModalOverlay');
+            document.getElementById('warningModalMsg').textContent = message;
+            overlay.classList.add('active');
+            setTimeout(() => {
+                overlay.classList.remove('active');
+            }, 5000); // 5 seconds display
         }
 
         function updateClock() {
@@ -845,6 +911,9 @@
                             bestStatus = { state: sState, icon: sIcon, text: sText };
                             bestPriority = 4;
                         } else {
+                            if (data.message && data.message.includes("Not Accepted")) {
+                                showWarningPopup(`${displayName}: ${data.message}`);
+                            }
                             bestStatus = { state: 'state-error', icon: '<i class="fa-solid fa-circle-xmark"></i>', text: data.message || `Error for ${displayName}` };
                             bestPriority = 3;
                         }
@@ -869,6 +938,14 @@
             statusText.innerHTML = text;
         }
     </script>
+    <!-- Warning Modal -->
+    <div class="warning-modal-overlay" id="warningModalOverlay">
+        <div class="warning-modal">
+            <div class="warning-modal-icon"><i class="fa-solid fa-circle-exclamation"></i></div>
+            <div class="warning-modal-title">NOT ACCEPTED</div>
+            <div class="warning-modal-msg" id="warningModalMsg">Login not accepted</div>
+        </div>
+    </div>
 </body>
 
 </html>
