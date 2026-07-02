@@ -231,6 +231,15 @@ def mark_attendance(employee_id):
             release_db_connection(conn)
             return "OVERRIDE", "Manual Leave Active"
 
+        # ADD RESTRICTION: Prevent logout between 17:15 and 17:30
+        now_time_parsed = datetime.datetime.strptime(now_time, '%H:%M:%S').time()
+        start_restrict = datetime.time(17, 15, 0)
+        end_restrict = datetime.time(17, 30, 0)
+        
+        if start_restrict <= now_time_parsed <= end_restrict:
+            release_db_connection(conn)
+            return "RESTRICTED", "Log out not allowed between 5:15 PM and 5:30 PM"
+
         # We no longer block if already logged out; we update the checkout time
         # so that the latest scan becomes the final check-out time.
         
