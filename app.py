@@ -308,7 +308,7 @@ def api_mark():
     else:
         status_type, msg = "ERROR", res
         
-    if status_type == 'LATE':
+    if status_type in ['LATE', 'RESTRICTED']:
         return jsonify(success=False, message=msg)
         
     return jsonify(success=True, type=status_type, message=msg)
