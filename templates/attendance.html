@@ -231,8 +231,13 @@
               body: JSON.stringify({ employee_id: id })
             });
             const data = await res.json();
-            bestMsg = `✅ ${displayName}: ${data.message}`;
-            bestClass = 'live-status status-green';
+            if (data.success) {
+              bestMsg = `✅ ${displayName}: ${data.message}`;
+              bestClass = 'live-status status-green';
+            } else {
+              bestMsg = `❌ ${displayName}: ${data.message}`;
+              bestClass = 'live-status status-red';
+            }
             bestPriority = 4;
             markedOn[id] = now;
             seenFor[id] = THRESHOLD + 1;
