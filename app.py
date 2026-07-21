@@ -8,7 +8,7 @@ import pandas as pd
 from datetime import datetime
 import base64
 
-from database import init_db, add_employee, update_employee, get_all_employees, get_all_employees_no_blob, delete_employee, mark_attendance, get_attendance_logs, get_attendance_logs_count, update_attendance_time, get_db_connection, get_cursor, get_placeholder
+from database import init_db, add_employee, update_employee, get_all_employees, get_all_employees_no_blob, delete_employee, mark_attendance, get_attendance_logs, get_attendance_logs_count, update_attendance_time, get_db_connection, get_cursor, get_placeholder, release_db_connection
 from face_utils import encode_face_from_image, serialize_encoding, deserialize_encoding, match_face
 
 app = Flask(__name__)
@@ -382,36 +382,38 @@ def api_manual_attendance():
         return jsonify(success=False, message='Missing parameters')
         
     conn = get_db_connection()
-    cursor = get_cursor(conn)
-    p = get_placeholder()
-    
-    # Check if record exists
-    cursor.execute(f"SELECT id FROM attendance WHERE employee_id = {p} AND date = {p}", (eid, date_val))
-    record = cursor.fetchone()
-    
-    if status == 'Present':
-        in_time = (in_time_val + ":00") if in_time_val else datetime.now().strftime('%H:%M:%S')
-        out_time = (out_time_val + ":00") if out_time_val else ''
-    elif status == 'Absent':
-        in_time = 'Absent'
-        out_time = 'Absent'
-    else:
-        # Leave statuses (Sick Leave, Paid Leave, Company Holiday)
-        in_time = status
-        out_time = status
-
-    rec_id = record['id'] if record else None
-    # SQLite row object behaves like dict but accessing by 'id' might need dict-like access
-    if record and type(record) is not dict:
-        rec_id = record[0] if isinstance(record, tuple) else record['id']
-
-    if record:
-        cursor.execute(f"UPDATE attendance SET login_time = {p}, logout_time = {p} WHERE id = {p}", (in_time, out_time, rec_id))
-    else:
-        cursor.execute(f"INSERT INTO attendance (employee_id, date, login_time, logout_time) VALUES ({p}, {p}, {p}, {p})", (eid, date_val, in_time, out_time))
+    try:
+        cursor = get_cursor(conn)
+        p = get_placeholder()
         
-    conn.commit()
-    conn.close()
+        # Check if record exists
+        cursor.execute(f"SELECT id FROM attendance WHERE employee_id = {p} AND date = {p}", (eid, date_val))
+        record = cursor.fetchone()
+        
+        if status == 'Present':
+            in_time = (in_time_val + ":00") if in_time_val else datetime.now().strftime('%H:%M:%S')
+            out_time = (out_time_val + ":00") if out_time_val else ''
+        elif status == 'Absent':
+            in_time = 'Absent'
+            out_time = 'Absent'
+        else:
+            # Leave statuses (Sick Leave, Paid Leave, Company Holiday)
+            in_time = status
+            out_time = status
+
+        rec_id = record['id'] if record else None
+        # SQLite row object behaves like dict but accessing by 'id' might need dict-like access
+        if record and type(record) is not dict:
+            rec_id = record[0] if isinstance(record, tuple) else record['id']
+
+        if record:
+            cursor.execute(f"UPDATE attendance SET login_time = {p}, logout_time = {p} WHERE id = {p}", (in_time, out_time, rec_id))
+        else:
+            cursor.execute(f"INSERT INTO attendance (employee_id, date, login_time, logout_time) VALUES ({p}, {p}, {p}, {p})", (eid, date_val, in_time, out_time))
+            
+        conn.commit()
+    finally:
+        release_db_connection(conn)
     return jsonify(success=True)
 
 @app.route('/api/mark_holiday_all', methods=['POST'])
@@ -422,33 +424,36 @@ def api_mark_holiday_all():
     if not date_val:
         return jsonify(success=False, message='Date is required')
         
-    conn = get_db_connection()
-    cursor = get_cursor(conn)
-    p = get_placeholder()
-    
     employees = get_all_employees_no_blob()
-    for emp in employees:
-        eid = emp['employee_id']
-        cursor.execute(f"SELECT id FROM attendance WHERE employee_id = {p} AND date = {p}", (eid, date_val))
-        record = cursor.fetchone()
+
+    conn = get_db_connection()
+    try:
+        cursor = get_cursor(conn)
+        p = get_placeholder()
         
-        in_time, out_time = 'Company Holiday', 'Company Holiday'
-        
-        # Determine record id safely
-        rec_id = None
-        if record:
-            if type(record) is not dict:
-                rec_id = record[0] if isinstance(record, tuple) else record['id']
-            else:
-                rec_id = record['id']
-                
-        if record:
-            cursor.execute(f"UPDATE attendance SET login_time = {p}, logout_time = {p} WHERE id = {p}", (in_time, out_time, rec_id))
-        else:
-            cursor.execute(f"INSERT INTO attendance (employee_id, date, login_time, logout_time) VALUES ({p}, {p}, {p}, {p})", (eid, date_val, in_time, out_time))
+        for emp in employees:
+            eid = emp['employee_id']
+            cursor.execute(f"SELECT id FROM attendance WHERE employee_id = {p} AND date = {p}", (eid, date_val))
+            record = cursor.fetchone()
             
-    conn.commit()
-    conn.close()
+            in_time, out_time = 'Company Holiday', 'Company Holiday'
+            
+            # Determine record id safely
+            rec_id = None
+            if record:
+                if type(record) is not dict:
+                    rec_id = record[0] if isinstance(record, tuple) else record['id']
+                else:
+                    rec_id = record['id']
+                    
+            if record:
+                cursor.execute(f"UPDATE attendance SET login_time = {p}, logout_time = {p} WHERE id = {p}", (in_time, out_time, rec_id))
+            else:
+                cursor.execute(f"INSERT INTO attendance (employee_id, date, login_time, logout_time) VALUES ({p}, {p}, {p}, {p})", (eid, date_val, in_time, out_time))
+                
+        conn.commit()
+    finally:
+        release_db_connection(conn)
     return jsonify(success=True)
 
 
