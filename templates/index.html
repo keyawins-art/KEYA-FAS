@@ -117,6 +117,34 @@
   </div>
 </div>
 
+<!-- Daily Automated Email Report Card -->
+<div class="card mt-4">
+  <div class="card-header flex-between">
+    <div>
+      <h3 style="display: flex; align-items: center; gap: 8px;">
+        <i class="fa-solid fa-paper-plane" style="color: #2563eb;"></i> 
+        Daily Email Dispatch (09:05 AM)
+      </h3>
+      <small style="color: #64748b;">Automated daily attendance summary + Excel sent to <b>keyafusion@gmail.com</b></small>
+    </div>
+    <span class="badge green" id="schedulerBadge" style="display: flex; align-items: center; gap: 6px; padding: 6px 12px;">
+      <i class="fa-solid fa-clock"></i> Active: 09:05 AM
+    </span>
+  </div>
+  <div class="card-body">
+    <div style="display: flex; gap: 15px; align-items: flex-end; flex-wrap: wrap;">
+      <div style="flex: 1; min-width: 180px;">
+        <label style="display: block; font-size: 0.8rem; margin-bottom: 5px; color: #64748b;">Select Date for Email Report</label>
+        <input type="date" id="emailReportDate" class="form-control" style="width: 100%;">
+      </div>
+      <button class="btn btn-secondary" id="btnSendEmailNow" onclick="sendDailyReportNow()" style="height: 42px; background: #2563eb; color: #fff; border: none;">
+        <i class="fa-solid fa-paper-plane"></i> Send Email Report Now
+      </button>
+    </div>
+    <div id="emailSendStatus" style="display: none; margin-top: 15px; padding: 12px 16px; border-radius: 8px; font-size: 0.9rem;"></div>
+  </div>
+</div>
+
 <div class="card mt-4">
   <div class="card-header flex-between">
     <h3>Recent Attendance</h3>
@@ -166,6 +194,16 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('reportMonth').value = today.getMonth() + 1;
     document.getElementById('reportYear').value = today.getFullYear();
     
+    // Format YYYY-MM-DD for date input
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const todayStr = `${yyyy}-${mm}-${dd}`;
+    const dateInput = document.getElementById('emailReportDate');
+    if (dateInput) {
+        dateInput.value = todayStr;
+    }
+    
     // Close dropdowns when clicking outside
     document.addEventListener('click', function(e) {
         if (!e.target.closest('.dropdown-wrapper')) {
@@ -195,6 +233,51 @@ function downloadReport() {
     const month = document.getElementById('reportMonth').value;
     const year = document.getElementById('reportYear').value;
     window.location.href = `/export_excel?month=${month}&year=${year}`;
+}
+
+async function sendDailyReportNow() {
+    const btn = document.getElementById('btnSendEmailNow');
+    const statusBox = document.getElementById('emailSendStatus');
+    const dateVal = document.getElementById('emailReportDate').value;
+    
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generating & Sending...';
+    statusBox.style.display = 'block';
+    statusBox.style.background = '#f1f5f9';
+    statusBox.style.color = '#334155';
+    statusBox.style.border = '1px solid #cbd5e1';
+    statusBox.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Compiling attendance data and connecting to Gmail SMTP...';
+
+    try {
+        const response = await fetch('/api/send_daily_report', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ date: dateVal })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            statusBox.style.background = '#ecfdf5';
+            statusBox.style.color = '#065f46';
+            statusBox.style.border = '1px solid #a7f3d0';
+            statusBox.innerHTML = `<b><i class="fa-solid fa-circle-check"></i> Success:</b> ${data.message}`;
+        } else {
+            statusBox.style.background = '#fef2f2';
+            statusBox.style.color = '#991b1b';
+            statusBox.style.border = '1px solid #fecaca';
+            statusBox.innerHTML = `<b><i class="fa-solid fa-triangle-exclamation"></i> Error:</b> ${data.message}`;
+        }
+    } catch (err) {
+        statusBox.style.background = '#fef2f2';
+        statusBox.style.color = '#991b1b';
+        statusBox.style.border = '1px solid #fecaca';
+        statusBox.innerHTML = `<b><i class="fa-solid fa-circle-xmark"></i> Request Error:</b> ${err.message}`;
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> Send Email Report Now';
+    }
 }
 </script>
 {% endblock %}

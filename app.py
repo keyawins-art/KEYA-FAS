@@ -8,8 +8,10 @@ import pandas as pd
 from datetime import datetime
 import base64
 
-from database import init_db, add_employee, update_employee, get_all_employees, get_all_employees_no_blob, delete_employee, mark_attendance, get_attendance_logs, get_attendance_logs_count, update_attendance_time, get_db_connection, get_cursor, get_placeholder, release_db_connection
+from database import init_db, add_employee, update_employee, toggle_employee_status, get_all_employees, get_all_employees_no_blob, delete_employee, mark_attendance, get_attendance_logs, get_attendance_logs_count, update_attendance_time, get_db_connection, get_cursor, get_placeholder, release_db_connection
 from face_utils import encode_face_from_image, serialize_encoding, deserialize_encoding, match_face
+from email_reporter import send_daily_attendance_email, get_email_config
+from scheduler import start_scheduler, get_scheduler_status
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'fas-secret-2026'
@@ -17,6 +19,9 @@ app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB limit
 
 # ─── Database Init ────────────────────────────────────────────────────────────
 init_db()
+
+# ─── Daily 09:05 AM Attendance Report Scheduler ──────────────────────────────
+start_scheduler()
 
 # ─── In-memory face cache ─────────────────────────────────────────────────────
 known_encodings = []
@@ -27,7 +32,7 @@ def reload_faces():
     global known_encodings, known_ids, id_to_name
     known_encodings, known_ids = [], []
     id_to_name = {}
-    for emp in get_all_employees():
+    for emp in get_all_employees(active_only=True):
         eid = emp['employee_id']
         name = emp['name']
         known_ids.append(eid)
@@ -91,7 +96,7 @@ def index():
     if os.getenv('APP_MODE') == 'USER':
         return redirect(url_for('user_panel'))
         
-    employees = get_all_employees_no_blob()
+    employees = get_all_employees_no_blob(active_only=True)
     today      = datetime.now().strftime('%Y-%m-%d')
     today_logs = get_attendance_logs(date=today)
     
@@ -234,6 +239,23 @@ def api_update_employee():
         reload_faces()
         return jsonify(success=True, message="Employee updated successfully.")
     return jsonify(success=False, message="Failed to update employee.")
+
+@app.route('/api/toggle_employee_status', methods=['POST'])
+@login_required
+def api_toggle_employee_status():
+    data = request.get_json(force=True) or {}
+    eid = data.get('employee_id')
+    is_active = data.get('is_active')
+    
+    if not eid or is_active is None:
+        return jsonify(success=False, message="Employee ID and status are required.")
+    
+    ok = toggle_employee_status(eid, bool(is_active))
+    if ok:
+        reload_faces()
+        status_name = "Active" if is_active else "Inactive (Resigned)"
+        return jsonify(success=True, message=f"Employee {eid} marked as {status_name}.")
+    return jsonify(success=False, message="Failed to update employee status.")
 
 
 # ─── API: Recognise a single frame ────────────────────────────────────────────
@@ -661,6 +683,21 @@ def api_delete_attendance_record(record_id):
     if delete_attendance_record(record_id):
         return jsonify(success=True)
     return jsonify(success=False, message="Failed to delete record.")
+
+# ─── API: Email Report Trigger & Status ───────────────────────────────────────
+@app.route('/api/send_daily_report', methods=['POST'])
+@login_required
+def api_send_daily_report():
+    data = request.get_json(silent=True) or {}
+    target_date = data.get('date') or datetime.now().strftime('%Y-%m-%d')
+    to_email = data.get('to_email')
+    success, message = send_daily_attendance_email(target_date=target_date, to_email=to_email)
+    return jsonify(success=success, message=message)
+
+@app.route('/api/scheduler_status', methods=['GET'])
+@login_required
+def api_scheduler_status():
+    return jsonify(get_scheduler_status())
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5005, debug=True, threaded=True)

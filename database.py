@@ -60,9 +60,11 @@ def init_db():
                     department TEXT,
                     phone TEXT,
                     email TEXT,
-                    face_encoding BYTEA NOT NULL
+                    face_encoding BYTEA NOT NULL,
+                    is_active BOOLEAN DEFAULT TRUE
                 )
             ''')
+            cursor.execute('ALTER TABLE employees ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;')
             cursor.execute(f'''
                 CREATE TABLE IF NOT EXISTS attendance (
                     id SERIAL PRIMARY KEY,
@@ -83,9 +85,15 @@ def init_db():
                     department TEXT,
                     phone TEXT,
                     email TEXT,
-                    face_encoding BLOB NOT NULL
+                    face_encoding BLOB NOT NULL,
+                    is_active INTEGER DEFAULT 1
                 )
             ''')
+            cursor.execute("PRAGMA table_info(employees)")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'is_active' not in cols:
+                cursor.execute('ALTER TABLE employees ADD COLUMN is_active INTEGER DEFAULT 1')
+
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS attendance (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,16 +112,17 @@ def init_db():
         release_db_connection(conn)
 
 # Helper functions
-def add_employee(employee_id, name, department, phone, email, face_encoding_bytes):
+def add_employee(employee_id, name, department, phone, email, face_encoding_bytes, is_active=True):
     conn = get_db_connection()
     try:
         cursor = get_cursor(conn)
         p = get_placeholder()
         blob = psycopg2.Binary(face_encoding_bytes) if DB_URL else face_encoding_bytes
+        act_val = True if is_active else False
         cursor.execute(f'''
-            INSERT INTO employees (employee_id, name, department, phone, email, face_encoding)
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p})
-        ''', (employee_id, name, department, phone, email, blob))
+            INSERT INTO employees (employee_id, name, department, phone, email, face_encoding, is_active)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p})
+        ''', (employee_id, name, department, phone, email, blob, act_val))
         conn.commit()
         return True
     except (sqlite3.IntegrityError, psycopg2.IntegrityError):
@@ -124,24 +133,52 @@ def add_employee(employee_id, name, department, phone, email, face_encoding_byte
     finally:
         release_db_connection(conn)
 
-def get_all_employees():
+def get_all_employees(active_only=False):
     conn = get_db_connection()
     try:
         cursor = get_cursor(conn)
-        cursor.execute('SELECT * FROM employees')
+        if active_only:
+            cursor.execute('SELECT * FROM employees WHERE is_active IS NOT FALSE AND is_active != 0 ORDER BY employee_id ASC')
+        else:
+            cursor.execute('SELECT * FROM employees ORDER BY is_active DESC, employee_id ASC')
         employees = cursor.fetchall()
         return employees
     finally:
         release_db_connection(conn)
 
-def get_all_employees_no_blob():
+def get_all_employees_no_blob(active_only=False):
     conn = get_db_connection()
     try:
         cursor = get_cursor(conn)
         # Exclude face_encoding (BLOB) for faster GUI loads
-        cursor.execute('SELECT employee_id, name, department, phone, email FROM employees')
+        if active_only:
+            if DB_URL:
+                cursor.execute('SELECT employee_id, name, department, phone, email, COALESCE(is_active, TRUE) AS is_active FROM employees WHERE is_active IS NOT FALSE ORDER BY employee_id ASC')
+            else:
+                cursor.execute('SELECT employee_id, name, department, phone, email, COALESCE(is_active, 1) AS is_active FROM employees WHERE is_active != 0 ORDER BY employee_id ASC')
+        else:
+            if DB_URL:
+                cursor.execute('SELECT employee_id, name, department, phone, email, COALESCE(is_active, TRUE) AS is_active FROM employees ORDER BY is_active DESC, employee_id ASC')
+            else:
+                cursor.execute('SELECT employee_id, name, department, phone, email, COALESCE(is_active, 1) AS is_active FROM employees ORDER BY is_active DESC, employee_id ASC')
         employees = cursor.fetchall()
         return employees
+    finally:
+        release_db_connection(conn)
+
+def toggle_employee_status(employee_id, is_active):
+    conn = get_db_connection()
+    try:
+        cursor = get_cursor(conn)
+        p = get_placeholder()
+        act_val = True if is_active else False
+        cursor.execute(f"UPDATE employees SET is_active = {p} WHERE employee_id = {p}", (act_val, employee_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        if conn: conn.rollback()
+        print(f"Error toggling employee status: {e}")
+        return False
     finally:
         release_db_connection(conn)
 
@@ -207,6 +244,16 @@ def mark_attendance(employee_id):
         p = get_placeholder()
         today = datetime.date.today().strftime('%Y-%m-%d')
         now_time = datetime.datetime.now().strftime('%H:%M:%S')
+
+        # Check if employee is active
+        cursor.execute(f"SELECT is_active FROM employees WHERE employee_id = {p}", (employee_id,))
+        emp_rec = cursor.fetchone()
+        if not emp_rec:
+            return "NOT_FOUND", "Employee ID not registered"
+        
+        is_act = emp_rec['is_active'] if isinstance(emp_rec, dict) else emp_rec[0]
+        if is_act is False or is_act == 0:
+            return "INACTIVE", "Employee is Inactive / Resigned"
 
         cursor.execute(f'''
             SELECT id, login_time, logout_time FROM attendance 

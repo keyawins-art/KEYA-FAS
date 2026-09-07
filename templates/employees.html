@@ -3,9 +3,23 @@
 {% block content %}
 
 <div class="card">
-  <div class="card-header flex-between">
+  <div class="card-header flex-between" style="flex-wrap: wrap; gap: 12px;">
     <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-      <h3>All Employees ({{ employees|length }})</h3>
+      <h3 style="margin: 0;">Employees (<span id="totalEmpCount">{{ employees|length }}</span>)</h3>
+      
+      <!-- Filter Tabs -->
+      <div style="display: inline-flex; background: #f1f5f9; border-radius: 8px; padding: 3px; gap: 4px;">
+        <button type="button" class="btn btn-sm filter-tab active" onclick="filterEmployees('all', this)" style="border: none; padding: 4px 12px; font-size: 0.8rem; border-radius: 6px;">
+          All
+        </button>
+        <button type="button" class="btn btn-sm filter-tab" onclick="filterEmployees('active', this)" style="border: none; padding: 4px 12px; font-size: 0.8rem; border-radius: 6px; background: transparent; color: #64748b;">
+          Active
+        </button>
+        <button type="button" class="btn btn-sm filter-tab" onclick="filterEmployees('inactive', this)" style="border: none; padding: 4px 12px; font-size: 0.8rem; border-radius: 6px; background: transparent; color: #64748b;">
+          Inactive (Resigned)
+        </button>
+      </div>
+
       <input type="date" id="attendanceDate" class="form-control" style="padding: 5px 10px; width: auto; font-size: 0.85rem;" title="Select date for manual attendance">
       <input type="time" id="attendanceInTime" class="form-control" style="padding: 5px 10px; width: auto; font-size: 0.85rem;" title="Login Time (optional)">
       <input type="time" id="attendanceOutTime" class="form-control" style="padding: 5px 10px; width: auto; font-size: 0.85rem;" title="Logout Time (optional)">
@@ -19,40 +33,76 @@
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
-      <table class="table">
+      <table class="table" id="employeeTable">
         <thead>
-          <tr><th>ID</th><th>Name</th><th>Department</th><th>Phone</th><th>Email</th><th>Action</th></tr>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Department</th>
+            <th>Phone</th>
+            <th>Email</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
         </thead>
         <tbody>
           {% for e in employees %}
-          <tr>
+          {% set is_act = (e.is_active is not defined) or (e.is_active is sameas true) or (e.is_active == 1) %}
+          <tr class="emp-row {% if is_act %}status-active{% else %}status-inactive{% endif %}" style="{% if not is_act %}background-color: #f8fafc; opacity: 0.85;{% endif %}">
             <td><span class="chip">{{ e.employee_id }}</span></td>
-            <td><b>{{ e.name }}</b></td>
+            <td>
+              <b>{{ e.name }}</b>
+              {% if not is_act %}
+                <span style="font-size: 0.75rem; color: #ef4444; margin-left: 6px;"><i class="fa-solid fa-user-slash"></i> Resigned</span>
+              {% endif %}
+            </td>
             <td>{{ e.department }}</td>
             <td>{{ e.phone }}</td>
             <td>{{ e.email }}</td>
             <td>
-              <div style="display: flex; gap: 5px;">
+              {% if is_act %}
+                <span class="badge green" style="font-weight: 600;"><i class="fa-solid fa-circle-check"></i> Active</span>
+              {% else %}
+                <span class="badge danger" style="background: #fee2e2; color: #dc2626; font-weight: 600;"><i class="fa-solid fa-circle-xmark"></i> Inactive</span>
+              {% endif %}
+            </td>
+            <td>
+              <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                <!-- Toggle Active/Inactive Status -->
+                {% if is_act %}
+                  <button class="btn btn-sm" onclick="toggleStatus('{{ e.employee_id }}', '{{ e.name }}', false)" title="Mark as Inactive / Resigned" style="background-color: #f97316; color: #fff; border: none;">
+                    <i class="fa-solid fa-user-slash"></i>
+                  </button>
+                {% else %}
+                  <button class="btn btn-sm" onclick="toggleStatus('{{ e.employee_id }}', '{{ e.name }}', true)" title="Re-activate Employee" style="background-color: #10b981; color: #fff; border: none;">
+                    <i class="fa-solid fa-user-check"></i>
+                  </button>
+                {% endif %}
+
                 <button class="btn btn-primary btn-sm" onclick="openEditModal('{{ e.employee_id }}', '{{ e.name }}', '{{ e.department }}', '{{ e.phone }}', '{{ e.email }}')" title="Edit Employee" style="background-color: #6366f1; border-color: #6366f1;">
                   <i class="fa-solid fa-pen-to-square"></i>
                 </button>
-                <button class="btn btn-success btn-sm" onclick="markManual('{{ e.employee_id }}', '{{ e.name }}', 'Present')" title="Mark Present">
-                  <i class="fa-solid fa-check"></i>
-                </button>
-                <button class="btn btn-warning btn-sm" onclick="markManual('{{ e.employee_id }}', '{{ e.name }}', 'Sick Leave')" title="Sick Leave" style="background-color: #f59e0b; border-color: #f59e0b;">
-                  <i class="fa-solid fa-hospital-user"></i>
-                </button>
-                <button class="btn btn-info btn-sm" onclick="markManual('{{ e.employee_id }}', '{{ e.name }}', 'Paid Leave')" title="Paid Leave" style="background-color: #3b82f6; border-color: #3b82f6;">
-                  <i class="fa-solid fa-calendar-check"></i>
-                </button>
-                <button class="btn btn-danger btn-sm" onclick="delEmp('{{ e.employee_id }}','{{ e.name }}')" title="Delete Employee">
+
+                {% if is_act %}
+                  <button class="btn btn-success btn-sm" onclick="markManual('{{ e.employee_id }}', '{{ e.name }}', 'Present')" title="Mark Present">
+                    <i class="fa-solid fa-check"></i>
+                  </button>
+                  <button class="btn btn-warning btn-sm" onclick="markManual('{{ e.employee_id }}', '{{ e.name }}', 'Sick Leave')" title="Sick Leave" style="background-color: #f59e0b; border-color: #f59e0b;">
+                    <i class="fa-solid fa-hospital-user"></i>
+                  </button>
+                  <button class="btn btn-info btn-sm" onclick="markManual('{{ e.employee_id }}', '{{ e.name }}', 'Paid Leave')" title="Paid Leave" style="background-color: #3b82f6; border-color: #3b82f6;">
+                    <i class="fa-solid fa-calendar-check"></i>
+                  </button>
+                {% endif %}
+
+                <button class="btn btn-danger btn-sm" onclick="delEmp('{{ e.employee_id }}','{{ e.name }}')" title="Delete Record Permanently">
                   <i class="fa-solid fa-trash"></i>
                 </button>
               </div>
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="empty">No employees yet. <a href="{{ url_for('add_employee_route') }}">Add one now.</a></td></tr>
+          <tr><td colspan="7" class="empty">No employees yet. <a href="{{ url_for('add_employee_route') }}">Add one now.</a></td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -219,6 +269,69 @@ async function delEmp(id, name) {
   const data = await res.json();
   if (data.success) location.reload();
   else alert('Failed to delete employee.');
+}
+
+async function toggleStatus(id, name, newStatus) {
+  const actionText = newStatus ? "Re-activate" : "Mark as Inactive (Resigned)";
+  const warningText = newStatus 
+    ? `Do you want to re-activate ${name} (${id})? They will be recognized at cameras again.`
+    : `Do you want to mark ${name} (${id}) as Inactive / Resigned?\n\n• Their past attendance history will remain safely preserved in the database.\n• They will no longer be scanned by cameras.\n• They will NOT appear in daily email reports as absent.`;
+
+  if (!confirm(warningText)) return;
+
+  try {
+    const res = await fetch('/api/toggle_employee_status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: id, is_active: newStatus })
+    });
+    const data = await res.json();
+    if (data.success) {
+      location.reload();
+    } else {
+      alert(data.message || "Failed to update employee status.");
+    }
+  } catch (err) {
+    alert("Connection error: " + err.message);
+  }
+}
+
+function filterEmployees(type, btn) {
+  document.querySelectorAll('.filter-tab').forEach(b => {
+    b.classList.remove('active');
+    b.style.background = 'transparent';
+    b.style.color = '#64748b';
+  });
+  btn.classList.add('active');
+  btn.style.background = '#2563eb';
+  btn.style.color = '#fff';
+
+  const rows = document.querySelectorAll('.emp-row');
+  let visibleCount = 0;
+
+  rows.forEach(row => {
+    if (type === 'all') {
+      row.style.display = '';
+      visibleCount++;
+    } else if (type === 'active') {
+      if (row.classList.contains('status-active')) {
+        row.style.display = '';
+        visibleCount++;
+      } else {
+        row.style.display = 'none';
+      }
+    } else if (type === 'inactive') {
+      if (row.classList.contains('status-inactive')) {
+        row.style.display = '';
+        visibleCount++;
+      } else {
+        row.style.display = 'none';
+      }
+    }
+  });
+
+  const countElem = document.getElementById('totalEmpCount');
+  if (countElem) countElem.textContent = visibleCount;
 }
 </script>
 {% endblock %}
