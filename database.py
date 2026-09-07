@@ -138,7 +138,10 @@ def get_all_employees(active_only=False):
     try:
         cursor = get_cursor(conn)
         if active_only:
-            cursor.execute('SELECT * FROM employees WHERE is_active IS NOT FALSE AND is_active != 0 ORDER BY employee_id ASC')
+            if DB_URL:
+                cursor.execute('SELECT * FROM employees WHERE is_active IS NOT FALSE ORDER BY employee_id ASC')
+            else:
+                cursor.execute('SELECT * FROM employees WHERE is_active != 0 ORDER BY employee_id ASC')
         else:
             cursor.execute('SELECT * FROM employees ORDER BY is_active DESC, employee_id ASC')
         employees = cursor.fetchall()
