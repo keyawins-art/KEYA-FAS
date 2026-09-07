@@ -365,9 +365,75 @@ def generate_html_email_body(summary, records, session_name=None):
     """
     return html
 
+def send_via_brevo_api(api_key, sender_email, receiver_email, subject, html_content, excel_bytes, attachment_name):
+    import urllib.request
+    import json
+    import base64
+    
+    url = "https://api.brevo.com/v3/smtp/email"
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key.strip(),
+        "content-type": "application/json"
+    }
+    
+    excel_b64 = base64.b64encode(excel_bytes).decode('utf-8')
+    payload = {
+        "sender": {"name": "Keya Attendance", "email": sender_email},
+        "to": [{"email": receiver_email}],
+        "subject": subject,
+        "htmlContent": html_content,
+        "attachment": [
+            {
+                "name": attachment_name,
+                "content": excel_b64
+            }
+        ]
+    }
+    
+    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+    with urllib.request.urlopen(req, timeout=30) as response:
+        success_msg = f"Daily attendance report successfully sent to {receiver_email} via Brevo HTTPS API."
+        print(f"[EmailReporter] {success_msg}")
+        return True, success_msg
+
+def send_via_resend_api(api_key, sender_email, receiver_email, subject, html_content, excel_bytes, attachment_name):
+    import urllib.request
+    import json
+    import base64
+    
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json"
+    }
+    
+    excel_b64 = base64.b64encode(excel_bytes).decode('utf-8')
+    from_address = os.getenv('RESEND_FROM_EMAIL', "Keya Attendance <onboarding@resend.dev>")
+    payload = {
+        "from": from_address,
+        "to": [receiver_email],
+        "subject": subject,
+        "html": html_content,
+        "attachments": [
+            {
+                "filename": attachment_name,
+                "content": excel_b64
+            }
+        ]
+    }
+    
+    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+    with urllib.request.urlopen(req, timeout=30) as response:
+        success_msg = f"Daily attendance report successfully sent to {receiver_email} via Resend HTTPS API."
+        print(f"[EmailReporter] {success_msg}")
+        return True, success_msg
+
 def send_daily_attendance_email(target_date=None, to_email=None, session_name=None):
     """
     Builds the daily report and sends it to the destination email address.
+    Supports Brevo / Resend HTTPS APIs (recommended for Render cloud hosting where SMTP is blocked),
+    with automatic fallback to Gmail SMTP SSL/TLS.
     Returns (success: bool, message: str)
     """
     config = get_email_config()
@@ -393,9 +459,26 @@ def send_daily_attendance_email(target_date=None, to_email=None, session_name=No
         print(f"[EmailReporter] Error: {err_msg}")
         return False, err_msg
 
-    # Build MIME message
-    msg = MIMEMultipart('mixed')
+    attachment_name = f"Daily_Attendance_{target_date}.xlsx"
     subject = f"Keya Fusion Attendance [{session_name}] - {target_date} ({summary['present_count']}/{summary['total_employees']} Present)"
+
+    # 1. Check for HTTPS API keys (Brevo / Resend) - Essential for Render Cloud Hosting
+    brevo_api_key = os.getenv('BREVO_API_KEY')
+    if brevo_api_key:
+        try:
+            return send_via_brevo_api(brevo_api_key, sender_email, receiver_email, subject, html_content, excel_bytes, attachment_name)
+        except Exception as e_brevo:
+            print(f"[EmailReporter] Brevo HTTPS API error: {e_brevo}")
+
+    resend_api_key = os.getenv('RESEND_API_KEY')
+    if resend_api_key:
+        try:
+            return send_via_resend_api(resend_api_key, sender_email, receiver_email, subject, html_content, excel_bytes, attachment_name)
+        except Exception as e_resend:
+            print(f"[EmailReporter] Resend HTTPS API error: {e_resend}")
+
+    # 2. Build MIME message for direct SMTP
+    msg = MIMEMultipart('mixed')
     msg['Subject'] = subject
     msg['From'] = f"Keya Attendance System <{sender_email}>"
     msg['To'] = receiver_email
@@ -405,7 +488,6 @@ def send_daily_attendance_email(target_date=None, to_email=None, session_name=No
     msg.attach(part_html)
 
     # Add Excel Attachment
-    attachment_name = f"Daily_Attendance_{target_date}.xlsx"
     part_attachment = MIMEBase('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     part_attachment.set_payload(excel_bytes)
     encoders.encode_base64(part_attachment)
@@ -416,9 +498,9 @@ def send_daily_attendance_email(target_date=None, to_email=None, session_name=No
     smtp_server = 'smtp.gmail.com'
     error_log = []
 
-    # 1. Try SSL port 465
+    # Try SSL port 465
     try:
-        with smtplib.SMTP_SSL(smtp_server, 465, timeout=25) as server:
+        with smtplib.SMTP_SSL(smtp_server, 465, timeout=20) as server:
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, [receiver_email], msg.as_string())
         success_msg = f"Daily attendance report successfully sent to {receiver_email} via SSL:465."
@@ -427,9 +509,9 @@ def send_daily_attendance_email(target_date=None, to_email=None, session_name=No
     except Exception as e1:
         error_log.append(f"SSL:465 attempt failed: {str(e1)}")
 
-    # 2. Try TLS port 587
+    # Try TLS port 587
     try:
-        with smtplib.SMTP(smtp_server, 587, timeout=25) as server:
+        with smtplib.SMTP(smtp_server, 587, timeout=20) as server:
             server.starttls()
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, [receiver_email], msg.as_string())
@@ -440,11 +522,18 @@ def send_daily_attendance_email(target_date=None, to_email=None, session_name=No
         error_log.append(f"TLS:587 attempt failed: {str(e2)}")
 
     full_error = " | ".join(error_log)
-    if "535" in full_error or "Username and Password not accepted" in full_error:
+    if "Network is unreachable" in full_error or "101" in full_error:
+        hint = (
+            "Render Cloud Hosting blocks direct SMTP ports (25, 465, 587) to prevent spam. "
+            "To send emails from Render, get a free API Key from Brevo (https://brevo.com) or Resend (https://resend.com) "
+            "and add BREVO_API_KEY or RESEND_API_KEY in Render Dashboard -> Environment."
+        )
+        final_msg = f"{full_error}. [Render Notice: {hint}]"
+    elif "535" in full_error or "Username and Password not accepted" in full_error:
         hint = (
             "Gmail SMTP authentication failed. For security, Gmail requires a 16-character 'Google App Password'. "
             "Please go to Google Account -> Security -> 2-Step Verification -> App Passwords, "
-            "generate an App Password and put it in .env as REPORT_SENDER_PASSWORD."
+            "generate an App Password and put it in .env / Render Environment as REPORT_SENDER_PASSWORD."
         )
         final_msg = f"{full_error}. TIP: {hint}"
     else:
