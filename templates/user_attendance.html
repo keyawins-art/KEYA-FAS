@@ -343,6 +343,8 @@
         .hud-badge.in { background: #d1fae5; color: #065f46; }
         .hud-badge.out { background: #ffedd5; color: #9a3412; }
         .hud-badge.info { background: #e0f2fe; color: #0369a1; }
+        .hud-badge.late { background: #fee2e2; color: #b91c1c; border: 1px solid #f87171; }
+        .hud-badge.early { background: #fef3c7; color: #b45309; border: 1px solid #fbbf24; }
 
         /* ── Pulse Glow Effects ── */
         .camera-wrapper::after {
@@ -651,17 +653,41 @@
             return "Good Evening";
         }
 
+        function speakText(text) {
+            if ('speechSynthesis' in window) {
+                try {
+                    window.speechSynthesis.cancel();
+                    const utter = new SpeechSynthesisUtterance(text);
+                    utter.rate = 0.95;
+                    utter.pitch = 1.0;
+                    window.speechSynthesis.speak(utter);
+                } catch (e) {
+                    console.warn("TTS playback error:", e);
+                }
+            }
+        }
+
         function showHud(name, status, type = 'info') {
             document.getElementById('hudName').textContent = name;
             document.getElementById('hudDetail').textContent = status;
             const badge = document.getElementById('hudStatusBadge');
-            badge.textContent = type === 'in' ? 'SHIFT STARTED' : (type === 'out' ? 'WORK COMPLETED' : 'SECURE');
+            if (type === 'in') {
+                badge.textContent = 'SHIFT STARTED';
+            } else if (type === 'late') {
+                badge.textContent = 'LATE ARRIVAL';
+            } else if (type === 'early') {
+                badge.textContent = 'EARLY LOGOUT';
+            } else if (type === 'out') {
+                badge.textContent = 'WORK COMPLETED';
+            } else {
+                badge.textContent = 'SECURE';
+            }
             badge.className = 'hud-badge ' + type;
             document.getElementById('hudCard').classList.add('active');
             
             setTimeout(() => {
                 document.getElementById('hudCard').classList.remove('active');
-            }, 4000);
+            }, 5000);
         }
 
         let warningTimeout;
@@ -904,14 +930,30 @@
                                 sText = `<b>Login Successful</b><br>${displayName}`;
                                 sIcon = '<i class="fa-solid fa-right-to-bracket"></i>';
                                 sState = 'state-success';
-                                showHud(displayName, 'Duty Started', 'in');
+                                showHud(displayName, 'Duty Started (On Time)', 'in');
                                 playSound(morningSound);
+                            } else if (data.type === 'IN_LATE') {
+                                sText = `<b>Login Recorded (Late)</b><br><span style="color:#ef4444;font-weight:700;">${data.message}</span><br>${displayName}`;
+                                sIcon = '<i class="fa-solid fa-clock-rotate-left" style="color:#ef4444;"></i>';
+                                sState = 'state-error';
+                                showHud(displayName, data.message, 'late');
+                                playSound(morningSound);
+                                const spokenMsg = data.message.includes('(') ? data.message.split('(')[0].trim() : data.message;
+                                speakText(`${displayName}, ${spokenMsg}`);
                             } else if (data.type === 'OUT') {
                                 sText = `<b>Logout Successful</b><br>${displayName}`;
                                 sIcon = '<i class="fa-solid fa-right-from-bracket"></i>';
                                 sState = 'state-out';
                                 showHud(displayName, 'Duty Completed', 'out');
                                 playSound(byeSound);
+                            } else if (data.type === 'OUT_EARLY') {
+                                sText = `<b>Logout Recorded (Early)</b><br><span style="color:#d97706;font-weight:700;">${data.message}</span><br>${displayName}`;
+                                sIcon = '<i class="fa-solid fa-person-walking-arrow-right" style="color:#d97706;"></i>';
+                                sState = 'state-out';
+                                showHud(displayName, data.message, 'early');
+                                playSound(byeSound);
+                                const spokenMsg = data.message.includes('(') ? data.message.split('(')[0].trim() : data.message;
+                                speakText(`${displayName}, ${spokenMsg}`);
                             } else if (data.type === 'ALREADY_IN') {
                                 sText = `<b>Status: Active</b><br>${displayName}`;
                                 sIcon = '<i class="fa-solid fa-user-check"></i>';

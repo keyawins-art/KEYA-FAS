@@ -323,15 +323,15 @@ def api_mark():
     if not eid:
         return jsonify(success=False, message='No employee_id')
     
-    # mark_attendance now returns (type, message)
+    # mark_attendance returns (type, message)
     res = mark_attendance(eid)
     if isinstance(res, tuple):
         status_type, msg = res
     else:
         status_type, msg = "ERROR", res
         
-    if status_type in ['LATE', 'RESTRICTED']:
-        return jsonify(success=False, message=msg)
+    if status_type in ['NOT_FOUND', 'INACTIVE', 'ERROR']:
+        return jsonify(success=False, message=msg, type=status_type)
         
     return jsonify(success=True, type=status_type, message=msg)
 

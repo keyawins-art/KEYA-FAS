@@ -240,13 +240,29 @@ def delete_employee(employee_id):
     finally:
         release_db_connection(conn)
 
+def format_duration(seconds):
+    """Formats seconds into readable string (e.g., '30 mins', '1 hr 15 mins', '2 hrs')."""
+    total_minutes = max(1, int(round(seconds / 60)))
+    if total_minutes < 60:
+        return f"{total_minutes} min{'s' if total_minutes != 1 else ''}"
+    hours = total_minutes // 60
+    rem_mins = total_minutes % 60
+    hr_str = f"{hours} hr{'s' if hours != 1 else ''}"
+    if rem_mins == 0:
+        return hr_str
+    return f"{hr_str} {rem_mins} min{'s' if rem_mins != 1 else ''}"
+
+SHIFT_START_STR = os.getenv('SHIFT_START_TIME', '09:00:00')
+SHIFT_END_STR = os.getenv('SHIFT_END_TIME', '17:30:00')
+
 def mark_attendance(employee_id):
     conn = get_db_connection()
     try:
         cursor = get_cursor(conn)
         p = get_placeholder()
-        today = datetime.date.today().strftime('%Y-%m-%d')
-        now_time = datetime.datetime.now().strftime('%H:%M:%S')
+        now_dt = datetime.datetime.now()
+        today = now_dt.strftime('%Y-%m-%d')
+        now_time = now_dt.strftime('%H:%M:%S')
 
         # Check if employee is active
         cursor.execute(f"SELECT is_active FROM employees WHERE employee_id = {p}", (employee_id,))
@@ -265,19 +281,38 @@ def mark_attendance(employee_id):
         
         record = cursor.fetchone()
 
-        if not record:
-            # First scan of the day -> Check-In
-            now_time_parsed = datetime.datetime.strptime(now_time, '%H:%M:%S').time()
-            nine_am = datetime.time(9, 0, 0)
-            if now_time_parsed > nine_am:
-                return "LATE", "Login Not Accepted (After 9:00 AM)"
+        # Parse shift boundaries
+        try:
+            start_parts = [int(x) for x in SHIFT_START_STR.split(':')]
+            shift_start = datetime.time(start_parts[0], start_parts[1], start_parts[2] if len(start_parts) > 2 else 0)
+        except Exception:
+            shift_start = datetime.time(9, 0, 0)
 
+        try:
+            end_parts = [int(x) for x in SHIFT_END_STR.split(':')]
+            shift_end = datetime.time(end_parts[0], end_parts[1], end_parts[2] if len(end_parts) > 2 else 0)
+        except Exception:
+            shift_end = datetime.time(17, 30, 0)
+
+        now_time_parsed = now_dt.time()
+        now_sec = now_time_parsed.hour * 3600 + now_time_parsed.minute * 60 + now_time_parsed.second
+        start_sec = shift_start.hour * 3600 + shift_start.minute * 60 + shift_start.second
+        end_sec = shift_end.hour * 3600 + shift_end.minute * 60 + shift_end.second
+
+        if not record:
+            # First scan of the day -> Check-In (Always accept and record!)
             cursor.execute(f'''
                 INSERT INTO attendance (employee_id, date, login_time, logout_time)
                 VALUES ({p}, {p}, {p}, {p})
             ''', (employee_id, today, now_time, ""))
             conn.commit()
-            return "IN", f"Check-In: {now_time}"
+
+            if now_sec > start_sec:
+                diff_sec = now_sec - start_sec
+                late_duration = format_duration(diff_sec)
+                return "IN_LATE", f"You are late by {late_duration} (Check-In: {now_time})"
+            else:
+                return "IN", f"Check-In: {now_time}"
         else:
             # Extract values (handle both dict and tuple)
             try:
@@ -288,46 +323,38 @@ def mark_attendance(employee_id):
                 rid, login_val, logout_val = record[0], record[1], record[2]
 
             # Safety: If manual override is active, don't update
-            if login_val == 'Absent' or logout_val == 'Absent' or login_val == 'Sick Leave' or login_val == 'Paid Leave':
-                return "OVERRIDE", "Manual Leave Active"
+            if login_val in ['Absent', 'Sick Leave', 'Paid Leave', 'Company Holiday'] or logout_val in ['Absent', 'Sick Leave', 'Paid Leave', 'Company Holiday']:
+                return "OVERRIDE", f"Manual Status Active ({login_val})"
 
-            # ADD RESTRICTION: Prevent logout between 17:15 and 17:30
-            now_time_parsed = datetime.datetime.strptime(now_time, '%H:%M:%S').time()
-            start_restrict = datetime.time(17, 15, 0)
-            end_restrict = datetime.time(17, 30, 0)
-            
-            if start_restrict <= now_time_parsed <= end_restrict:
-                return "RESTRICTED", "Log out not allowed between 5:15 PM and 5:30 PM"
-
-            # We no longer block if already logged out; we update the checkout time
-            # so that the latest scan becomes the final check-out time.
-            
             # SAFETY WINDOW: Prevent accidental Check-Out if it's within 30 mins of Check-In
             try:
-                from datetime import datetime as dt
-                # Handle potential different time formats like with or without AM/PM
                 try:
-                    t1 = dt.strptime(login_val, '%H:%M:%S')
+                    t1 = datetime.datetime.strptime(login_val, '%H:%M:%S')
                 except ValueError:
-                    # If it fails, try parsing with AM/PM (in case of manual entry)
-                    t1 = dt.strptime(login_val, '%I:%M %p')
+                    t1 = datetime.datetime.strptime(login_val, '%I:%M %p')
                     
-                t2 = dt.strptime(now_time, '%H:%M:%S')
+                t2 = datetime.datetime.strptime(now_time, '%H:%M:%S')
                 diff_sec = (t2 - t1).total_seconds()
                 
                 # If less than 30 minutes (1800 seconds)
                 if 0 <= diff_sec < 1800:
-                    return "ALREADY_IN", f"Already Checked-In! (Wait 30m to Out)"
+                    return "ALREADY_IN", "Already Checked-In! (Wait 30m to Out)"
             except Exception as e:
                 print(f"Time comparison error: {e}")
 
+            # Record check-out
             cursor.execute(f"UPDATE attendance SET logout_time = {p} WHERE id = {p}", (now_time, rid))
             conn.commit()
-            
-            if logout_val and logout_val != "":
-                return "OUT", f"Check-Out Updated: {now_time}"
-                
-            return "OUT", f"Check-Out: {now_time}"
+
+            # Check if early logout
+            if now_sec < end_sec:
+                early_sec = end_sec - now_sec
+                early_duration = format_duration(early_sec)
+                return "OUT_EARLY", f"You are early logout by {early_duration} (Check-Out: {now_time})"
+            else:
+                if logout_val and logout_val != "":
+                    return "OUT", f"Check-Out Updated: {now_time}"
+                return "OUT", f"Check-Out: {now_time}"
     finally:
         release_db_connection(conn)
 
