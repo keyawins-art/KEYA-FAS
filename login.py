@@ -8,8 +8,8 @@ app = Flask(__name__)
 
 # --- CONFIGURATION ---
 # REPLACE THESE WITH YOUR ACTUAL CREDENTIALS
-SENDER_EMAIL = "yashsharma1247@gmail.com"
-SENDER_PASSWORD = "Yash@123" 
+SENDER_EMAIL = "keyawins@gmail.com"
+SENDER_PASSWORD = "WINS@1313" 
 # Note: For Gmail, you need to use an "App Password" if 2FA is on.
 # Go to Google Account -> Security -> 2-Step Verification -> App passwords.
 
